@@ -1,6 +1,8 @@
 
 # Workshop Fundamentos Ingeniería IA (FIIA) - Edición Febrero 2026
 
+![Logo Workshop](./assets/logo_workshop.png)
+
 Proyecto para workshop de Fundamentos Ingeniería IA (FIIA).
 
 ## Sesiones
