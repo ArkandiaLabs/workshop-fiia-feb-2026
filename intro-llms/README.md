@@ -1,4 +1,4 @@
-# Sesión 1 - Los cimientos: APIs, LLMs y Testing
+# Los cimientos: LLMs, Arquitectura y Testing
 
 Esta sesión introduce los fundamentos del trabajo con Large Language Models (LLMs), desde las primeras llamadas a APIs hasta la construcción de aplicaciones completas con testing y evaluación.
 
