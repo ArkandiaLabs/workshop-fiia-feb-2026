@@ -36,7 +36,7 @@ Ejemplos progresivos para aprender los conceptos fundamentales de Google ADK: ag
 
 Patrones avanzados de workflows para coordinar múltiples agentes: routing, ejecución secuencial, paralela, orquestación y evaluación/optimización.
 
-### 3. [Incident Commander - Sistema Multi-Agente](incident-commander/README.md)
+### 3. [Incident Commander - Sistema Multi-Agente](incident-commander-system/README.md)
 
 Sistema completo de gestión de incidentes usando múltiples agentes especializados que colaboran para diagnosticar, resolver y documentar incidentes de producción.
 

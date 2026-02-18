@@ -31,29 +31,129 @@ El Incident Commander implementa el patrón **Orchestrator-Workers** de Anthropi
 
 **Diferencia con Prompt Chaining:** El flujo natural del incidente tiende a ser secuencial (diagnosticar → logs → postmortem), pero la secuencia **no está hardcodeada** — el LLM decide. Con prompts vagos, puede cambiar el orden o volver a llamar a un agente.
 
-### Diagrama
+### Diagramas de Arquitectura - Modelo C4
 
+#### Nivel 1: Diagrama de Contexto
+
+```mermaid
+flowchart TD
+    engineer["👤 <b>Ingeniero de Soporte</b><br/><i>Envía alertas de incidentes<br/>y recibe diagnósticos</i>"]
+
+    incident_system["🤖 <b>Incident Commander System</b><br/><i>Sistema multi-agente que investiga<br/>incidentes de producción<br/>usando Google ADK</i>"]
+
+    llm_provider["☁️ <b>Proveedor LLM</b><br/><i>OpenAI / Gemini</i>"]
+    mcp_server["📁 <b>MCP Filesystem Server</b><br/><i>Node.js / npx</i>"]
+    prod_platform["🖥️ <b>Plataforma de Producción</b><br/><i>auth-service, api-gateway,<br/>payments-api</i>"]
+
+    engineer -- "Envía alertas y recibe diagnósticos<br/>(Chat / CLI / API REST)" --> incident_system
+    incident_system -- "Envía prompts y recibe respuestas<br/>(API HTTP)" --> llm_provider
+    incident_system -- "Escribe reportes postmortem<br/>(MCP Protocol)" --> mcp_server
+    incident_system -- "Consulta estado, métricas y logs<br/>(Function Calling)" --> prod_platform
+
+    style engineer fill:#08427b,color:#fff,stroke:#073b6f
+    style incident_system fill:#1168bd,color:#fff,stroke:#0b4884
+    style llm_provider fill:#999,color:#fff,stroke:#6b6b6b
+    style mcp_server fill:#999,color:#fff,stroke:#6b6b6b
+    style prod_platform fill:#999,color:#fff,stroke:#6b6b6b
 ```
-                    ┌────────────────────────────────┐
-                    │      incident_commander        │
-                    │   (LlmAgent - Orchestrator)    │
-                    │   Modelo: Configurable (.env)  │
-                    │      Tools: ninguna            │
-                    └──────┬──────────┬──────────────┘
-                           │          │          │
-              ┌────────────┘          │          └────────────┐
-              ▼                       ▼                       ▼
-   ┌──────────────────┐   ┌──────────────────┐   ┌──────────────────┐
-   │ diagnostic_agent │   │   logs_agent     │   │ postmortem_agent │
-   │   (Worker)       │   │   (Worker)       │   │   (Worker)       │
-   │ Modelo compartido│   │ Modelo compartido│   │ Modelo compartido│
-   └──────────────────┘   └──────────────────┘   └──────────────────┘
-           │                      │                       │
-     ┌─────┴─────┐               │               ┌───────┴────────┐
-     ▼           ▼               ▼               ▼                ▼
- check_     check_         search_logs()    get_runbook()   write_file
- service_   metrics()                                        (MCP server)
- status()
+
+#### Nivel 2: Diagrama de Contenedores
+
+```mermaid
+flowchart TD
+    engineer["👤 <b>Ingeniero de Soporte</b><br/><i>Envía alertas de incidentes<br/>y recibe diagnósticos</i>"]
+
+    subgraph incident_system ["🔲 Incident Commander System"]
+        adk_agent["🤖 <b>Incident Commander Agent</b><br/><i>Python / Google ADK</i><br/><i>1 orquestador + 3 workers</i>"]
+        adk_ui["🖥️ <b>ADK Web UI / CLI</b><br/><i>Google ADK</i><br/><i>adk web / adk run</i>"]
+        fastapi["🌐 <b>FastAPI Custom Server</b><br/><i>Python / Uvicorn</i><br/><i>/health, /dev-ui, /docs</i>"]
+    end
+
+    llm_provider["☁️ <b>Proveedor LLM</b><br/><i>OpenAI / Gemini</i>"]
+    mcp_server["📁 <b>MCP Filesystem Server</b><br/><i>Node.js / npx</i>"]
+    prod_platform["🖥️ <b>Plataforma de Producción</b><br/><i>auth-service, api-gateway,<br/>payments-api</i>"]
+
+    engineer -- "Chat / Terminal" --> adk_ui
+    engineer -- "HTTP / REST" --> fastapi
+    adk_ui -- "Usa" --> adk_agent
+    fastapi -- "Usa" --> adk_agent
+    adk_agent -- "Prompts y respuestas<br/>(API HTTP)" --> llm_provider
+    adk_agent -- "Escribe reportes<br/>(MCP Protocol)" --> mcp_server
+    adk_agent -- "Estado, métricas y logs<br/>(Function Calling)" --> prod_platform
+
+    style engineer fill:#08427b,color:#fff,stroke:#073b6f
+    style adk_agent fill:#1168bd,color:#fff,stroke:#0b4884
+    style adk_ui fill:#1168bd,color:#fff,stroke:#0b4884
+    style fastapi fill:#1168bd,color:#fff,stroke:#0b4884
+    style llm_provider fill:#999,color:#fff,stroke:#6b6b6b
+    style mcp_server fill:#999,color:#fff,stroke:#6b6b6b
+    style prod_platform fill:#999,color:#fff,stroke:#6b6b6b
+    style incident_system fill:none,stroke:#1168bd,stroke-width:2px,stroke-dasharray:5 5
+```
+
+#### Nivel 3: Diagrama de Componentes — Incident Commander Agent
+
+```mermaid
+flowchart TD
+    subgraph adk_agent ["🔲 Incident Commander Agent"]
+        commander["🎖️ <b>Incident Commander</b><br/><i>Python / Google ADK</i><br/><i>Orquestador</i>"]
+
+        subgraph diagnostic_group [" "]
+            diagnostic["🔍 <b>Diagnostic Agent</b><br/><i>Python / Google ADK</i><br/><i>LlmAgent - Worker</i>"]
+            check_status["🔧 <b>check_service_status</b><br/><i>Componente: Python</i><br/><i>Verifica estado de un servicio<br/>(UP / DOWN / DEGRADED)</i>"]
+            check_metrics["🔧 <b>check_metrics</b><br/><i>Componente: Python</i><br/><i>Consulta métricas de CPU,<br/>memoria, conexiones DB y latencia</i>"]
+        end
+
+        subgraph logs_group [" "]
+            logs["📋 <b>Logs Agent</b><br/><i>Python / Google ADK</i><br/><i>LlmAgent - Worker</i>"]
+            search_logs["🔧 <b>search_logs</b><br/><i>Componente: Python</i><br/><i>Busca logs filtrados por<br/>severidad y ventana de tiempo</i>"]
+        end
+
+        subgraph postmortem_group [" "]
+            postmortem["📝 <b>Postmortem Agent</b><br/><i>Python / Google ADK</i><br/><i>LlmAgent - Worker</i>"]
+            get_runbook["🔧 <b>get_runbook</b><br/><i>Componente: Python</i><br/><i>Obtiene procedimientos estándar<br/>de remediación</i>"]
+            write_file["🔧 <b>write_file</b><br/><i>Componente: MCP Tool</i><br/><i>Escribe reportes postmortem<br/>a disco</i>"]
+        end
+    end
+
+    llm_provider["☁️ <b>Proveedor LLM</b><br/><i>OpenAI / Gemini</i>"]
+    mcp_server["📁 <b>MCP Filesystem Server</b><br/><i>Node.js / npx</i>"]
+    prod_platform["🖥️ <b>Plataforma de Producción</b><br/><i>auth-service, api-gateway,<br/>payments-api</i>"]
+
+    commander -- "Delega diagnóstico a subagente" --> diagnostic
+    commander -- "Delega análisis de logs a subagente" --> logs
+    commander -- "Delega reporte a subagente" --> postmortem
+    commander -- "Usa para razonamiento" --> llm_provider
+
+    diagnostic --> check_status
+    diagnostic --> check_metrics
+    check_status -- "Consulta estado" --> prod_platform
+    check_metrics -- "Consulta métricas" --> prod_platform
+
+    logs --> search_logs
+    search_logs -- "Consulta logs" --> prod_platform
+
+    postmortem --> get_runbook
+    postmortem --> write_file
+    get_runbook -- "Consulta runbooks" --> prod_platform
+    write_file -- "Escribe reportes" --> mcp_server
+
+    style commander fill:#08427b,color:#fff,stroke:#073b6f
+    style diagnostic fill:#1168bd,color:#fff,stroke:#0b4884
+    style logs fill:#1168bd,color:#fff,stroke:#0b4884
+    style postmortem fill:#1168bd,color:#fff,stroke:#0b4884
+    style check_status fill:#85bbf0,color:#000,stroke:#5a9bd5
+    style check_metrics fill:#85bbf0,color:#000,stroke:#5a9bd5
+    style search_logs fill:#85bbf0,color:#000,stroke:#5a9bd5
+    style get_runbook fill:#85bbf0,color:#000,stroke:#5a9bd5
+    style write_file fill:#85bbf0,color:#000,stroke:#5a9bd5
+    style llm_provider fill:#999,color:#fff,stroke:#6b6b6b
+    style mcp_server fill:#999,color:#fff,stroke:#6b6b6b
+    style prod_platform fill:#999,color:#fff,stroke:#6b6b6b
+    style adk_agent fill:none,stroke:#1168bd,stroke-width:2px,stroke-dasharray:5 5
+    style diagnostic_group fill:none,stroke:#1168bd,stroke-width:1px,stroke-dasharray:3 3
+    style logs_group fill:none,stroke:#1168bd,stroke-width:1px,stroke-dasharray:3 3
+    style postmortem_group fill:none,stroke:#1168bd,stroke-width:1px,stroke-dasharray:3 3
 ```
 
 ### Agentes
@@ -296,34 +396,6 @@ El sistema usa **datos simulados inline** en las tools (no archivos externos):
 - **Incidente simulado:** Agotamiento del pool de conexiones de BD tras deploy v2.4.1
 - **Timeline:** Deploy a las 14:25 → Falla a las 14:58 → "Tiempo actual" simulado: 15:05 (2025-06-15)
 - **Causa raíz:** Query `SELECT * FROM sessions WHERE expired=false` no cierra conexiones
-
----
-
-## Notas para el Presentador
-
-### Qué mostrar en `adk web` durante el demo
-
-Después de enviar un ejemplo de entrada:
-
-1. **El chat** — La respuesta final del agente (lo que ve el "usuario")
-2. **Los events/traces** — El detalle de cada paso interno:
-   - Qué sub-agente fue invocado y por qué
-   - Qué tool fue llamada y con qué argumentos
-   - Qué retornó la tool (mock data)
-   - El razonamiento interno del LLM (thoughts)
-
-### Puntos clave para destacar
-
-- **Autonomía:** El commander decide el flujo, no está hardcodeado
-- **ReAct loop:** Pensamiento → Acción → Observación → repetir
-- **Configuración centralizada:** Un solo archivo gestiona el modelo para todos los agentes
-- **Multi-modelo:** Soporta diferentes providers (OpenAI, Gemini) desde configuración
-- **MCP:** Tool externa (write_file) sin código en el agente
-- **Tools con tipado:** ADK descubre automáticamente las tools via type hints y docstrings
-
-### Escenario del incidente (contexto para audiencia)
-
-"Acabamos de recibir una alerta P1: el servicio de autenticación está caído. Los usuarios no pueden hacer login. Vamos a ver cómo nuestro sistema de agentes investiga esto de forma autónoma..."
 
 ---
 
